@@ -1111,6 +1111,25 @@ config PARAVIRT_TIME_ACCOUNTING
 
 	  If in doubt, say N here.
 
+config XEN_DOM0
+	def_bool y
+	depends on XEN
+
+config XEN
+	bool "Xen guest support on RISCV"
+	depends on RISCV && OF
+	select PARAVIRT
+	help
+	  Enables support for running Linux as a Xen guest on RISC-V.
+
+	  Xen is a type-1 hypervisor that allows multiple operating systems
+	  to run on the same hardware. Enabling this option allows the kernel
+	  to function as a guest under the Xen hypervisor on RISC-V platforms.
+
+	  Say Y if you want to run this kernel as a guest under Xen on RISC-V.
+
+	  If unsure, say N.
+
 config RELOCATABLE
 	bool "Build a relocatable kernel"
 	depends on !XIP_KERNEL

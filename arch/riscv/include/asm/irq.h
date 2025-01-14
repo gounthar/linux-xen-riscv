@@ -25,6 +25,11 @@ struct fwnode_handle *riscv_get_intc_hwnode(void);
 int riscv_get_hart_index(struct fwnode_handle *fwnode, u32 logical_index,
 			 u32 *hart_index);
 
+static inline int nr_legacy_irqs(void)
+{
+	return 0;
+}
+
 #ifdef CONFIG_ACPI
 
 enum riscv_irqchip_type {
