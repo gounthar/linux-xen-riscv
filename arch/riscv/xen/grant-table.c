@@ -37,7 +37,7 @@ int arch_gnttab_map_shared(xen_pfn_t *frames, unsigned long nr_gframes,
 					unsigned long max_nr_gframes,
 					void **__shared)
 {
-	return 0;
+	return -ENOSYS;
 }
 
 void arch_gnttab_unmap(void *shared, unsigned long nr_gframes)
@@ -48,10 +48,10 @@ int arch_gnttab_map_status(uint64_t *frames, unsigned long nr_gframes,
 					unsigned long max_nr_gframes,
 					grant_status_t **__shared)
 {
-	return 0;
+	return -ENOSYS;
 }
 
 int arch_gnttab_init(unsigned long nr_shared, unsigned long nr_status)
 {
-	return 0;
+	return -ENOSYS;
 }

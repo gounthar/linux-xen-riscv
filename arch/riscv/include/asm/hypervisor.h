@@ -4,6 +4,4 @@
 
 #include <asm/xen/hypervisor.h>
 
-void kvm_init_hyp_services(void);
-
 #endif
