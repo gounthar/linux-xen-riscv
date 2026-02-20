@@ -41,7 +41,7 @@ static struct start_info _xen_start_info;
 struct start_info *xen_start_info = &_xen_start_info;
 EXPORT_SYMBOL(xen_start_info);
 
-enum xen_domain_type xen_domain_type = XEN_NATIVE;
+enum xen_domain_type xen_domain_type = XEN_HVM_DOMAIN; //hacked
 EXPORT_SYMBOL(xen_domain_type);
 
 struct shared_info xen_dummy_shared_info;
@@ -140,7 +140,7 @@ static void __init xen_dt_guest_init(void)
 
 static int __init xen_guest_init(void)
 {
-	return 0;
+    return 0;
 }
 early_initcall(xen_guest_init);
 
