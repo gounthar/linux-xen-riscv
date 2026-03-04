@@ -44,12 +44,12 @@ extern struct rb_root phys_to_mach;
 /* Pseudo-physical <-> Guest conversion */
 static inline unsigned long pfn_to_gfn(unsigned long pfn)
 {
-	return 0;
+	return pfn;
 }
 
 static inline unsigned long gfn_to_pfn(unsigned long gfn)
 {
-	return 0;
+	return gfn;
 }
 
 /* Pseudo-physical <-> BUS conversion */

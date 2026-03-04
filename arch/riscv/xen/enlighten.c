@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include "linux/printk.h"
 #include <xen/xen.h>
 #include <xen/events.h>
 #include <xen/grant_table.h>
@@ -132,14 +133,69 @@ static int __init fdt_find_hyper_node(unsigned long node, const char *uname,
 
 void __init xen_early_init(void)
 {
+	xen_domain_type = XEN_HVM_DOMAIN;
+
+	xen_setup_features();
+	printk("DEBUG %s:%d\n", __FILE__, __LINE__);
+
+	if (xen_feature(XENFEAT_dom0))
+		xen_start_flags |= SIF_INITDOMAIN|SIF_PRIVILEGED;
+
+	if (!console_set_on_cmdline && !xen_initial_domain())
+		add_preferred_console("hvc", 0, NULL);
+
 }
 
 static void __init xen_dt_guest_init(void)
 {
+	struct device_node *xen_node;
+	struct resource res;
+
+	xen_node = of_find_compatible_node(NULL, NULL, "xen,xen");
+	if (!xen_node) {
+		pr_err("Xen support was detected before, but it has disappeared\n");
+		return;
+	}
+
+	xen_events_irq = irq_of_parse_and_map(xen_node, 0);
+
+	if (of_address_to_resource(xen_node, GRANT_TABLE_INDEX, &res)) {
+		pr_err("Xen grant table region is not found\n");
+		of_node_put(xen_node);
+		return;
+	}
+	of_node_put(xen_node);
+	xen_grant_frames = res.start;
 }
 
 static int __init xen_guest_init(void)
 {
+	if (!xen_domain())
+		return 0;
+
+	if (IS_ENABLED(CONFIG_XEN_VIRTIO))
+		virtio_set_mem_acc_cb(xen_virtio_restricted_mem_acc);
+
+	xen_dt_guest_init();
+	// if (!acpi_disabled)
+	// 	xen_acpi_guest_init();
+	// else
+	// 	xen_dt_guest_init();
+
+	if (!xen_events_irq){
+		pr_err("Xen event channel interrupt not found\n");
+		return -ENODEV;
+	}
+
+	/*
+	 * Making sure board specific code will not set up ops for
+	 * cpu idle and cpu freq.
+	 */
+	disable_cpuidle();
+	disable_cpufreq();
+
+	xen_init_IRQ();
+
     return 0;
 }
 early_initcall(xen_guest_init);

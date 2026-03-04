@@ -8,6 +8,7 @@
  *  Nick Kossifidis <mick@ics.forth.gr>
  */
 
+#include "xen/riscv/hypervisor.h"
 #include <linux/acpi.h>
 #include <linux/cpu.h>
 #include <linux/init.h>
@@ -324,6 +325,8 @@ void __init setup_arch(char **cmdline_p)
 	sbi_init();
 	jump_label_init();
 	parse_early_param();
+
+	xen_early_init();
 
 	efi_init();
 	paging_init();
