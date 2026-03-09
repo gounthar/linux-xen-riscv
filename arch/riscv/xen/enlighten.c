@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0-only
-#include "linux/printk.h"
 #include <xen/xen.h>
 #include <xen/events.h>
 #include <xen/grant_table.h>
@@ -68,6 +67,8 @@ static __read_mostly phys_addr_t xen_grant_frames;
 uint32_t xen_start_flags;
 EXPORT_SYMBOL(xen_start_flags);
 
+extern int imsic_irqdomain_init(void);
+
 int xen_unmap_domain_gfn_range(struct vm_area_struct *vma,
 					int nr, struct page **pages)
 {
@@ -91,11 +92,13 @@ static struct notifier_block xen_pvclock_gtod_notifier = {
 
 static int xen_starting_cpu(unsigned int cpu)
 {
+	enable_percpu_irq(xen_events_irq, IRQ_TYPE_NONE);
 	return 0;
 }
 
 static int xen_dying_cpu(unsigned int cpu)
 {
+	disable_percpu_irq(xen_events_irq);
 	return 0;
 }
 
@@ -118,6 +121,12 @@ static void xen_power_off(void)
 {
 }
 
+static irqreturn_t xen_riscv_callback(int irq, void *arg)
+{
+	pr_info("IRQ RECEIVED : %d\n", irq);
+	xen_evtchn_do_upcall();
+	return IRQ_HANDLED;
+}
 static __initdata struct {
 	const char *compat;
 	const char *prefix;
@@ -157,6 +166,7 @@ static void __init xen_dt_guest_init(void)
 		return;
 	}
 
+	imsic_irqdomain_init();
 	xen_events_irq = irq_of_parse_and_map(xen_node, 0);
 
 	if (of_address_to_resource(xen_node, GRANT_TABLE_INDEX, &res)) {
@@ -196,7 +206,17 @@ static int __init xen_guest_init(void)
 
 	xen_init_IRQ();
 
-    return 0;
+	pr_info("DEBUG : %s:%d - xen_events_irq : %d\n", __FILE__, __LINE__, xen_events_irq);
+	if (request_percpu_irq(xen_events_irq, xen_riscv_callback,
+			       "events", &xen_vcpu)) {
+		pr_err("Error request IRQ %d\n", xen_events_irq);
+		return -EINVAL;
+	}
+	enable_percpu_irq(xen_events_irq, IRQ_TYPE_NONE);
+
+    return cpuhp_setup_state(CPUHP_AP_ONLINE_DYN,
+				 "riscv/xen:starting", xen_starting_cpu,
+				 xen_dying_cpu);
 }
 early_initcall(xen_guest_init);
 
