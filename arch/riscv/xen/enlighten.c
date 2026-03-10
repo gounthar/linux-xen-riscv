@@ -67,7 +67,8 @@ static __read_mostly phys_addr_t xen_grant_frames;
 uint32_t xen_start_flags;
 EXPORT_SYMBOL(xen_start_flags);
 
-extern int imsic_irqdomain_init(void);
+struct device_node *xen_node;
+static uint32_t evtchn_hwirq;
 
 int xen_unmap_domain_gfn_range(struct vm_area_struct *vma,
 					int nr, struct page **pages)
@@ -157,17 +158,24 @@ void __init xen_early_init(void)
 
 static void __init xen_dt_guest_init(void)
 {
-	struct device_node *xen_node;
 	struct resource res;
+	struct of_phandle_args irq_args;
 
 	xen_node = of_find_compatible_node(NULL, NULL, "xen,xen");
 	if (!xen_node) {
 		pr_err("Xen support was detected before, but it has disappeared\n");
 		return;
 	}
+	if (of_irq_parse_one(xen_node, 0, &irq_args)){
+		pr_err("Xen irq arg not found\n");
+		return;
+	}
 
-	imsic_irqdomain_init();
-	xen_events_irq = irq_of_parse_and_map(xen_node, 0);
+	evtchn_hwirq = irq_args.args[1];
+	if (!evtchn_hwirq){
+		pr_err("Event channel hwirq missing\n");
+		return;
+	}
 
 	if (of_address_to_resource(xen_node, GRANT_TABLE_INDEX, &res)) {
 		pr_err("Xen grant table region is not found\n");
@@ -180,6 +188,10 @@ static void __init xen_dt_guest_init(void)
 
 static int __init xen_guest_init(void)
 {
+	struct xen_add_to_physmap xatp;
+	struct shared_info *shared_info_page = NULL;
+	int rc, cpu;
+
 	if (!xen_domain())
 		return 0;
 
@@ -192,10 +204,51 @@ static int __init xen_guest_init(void)
 	// else
 	// 	xen_dt_guest_init();
 
-	if (!xen_events_irq){
-		pr_err("Xen event channel interrupt not found\n");
-		return -ENODEV;
+
+	shared_info_page = (struct shared_info *)get_zeroed_page(GFP_KERNEL);
+
+	if (!shared_info_page) {
+		pr_err("not enough memory\n");
+		return -ENOMEM;
 	}
+	xatp.domid = DOMID_SELF;
+	xatp.idx = 0;
+	xatp.space = XENMAPSPACE_shared_info;
+	xatp.gpfn = virt_to_gfn(shared_info_page);
+	if (HYPERVISOR_memory_op(XENMEM_add_to_physmap, &xatp))
+		BUG();
+
+	HYPERVISOR_shared_info = (struct shared_info *)shared_info_page;
+
+	/* xen_vcpu is a pointer to the vcpu_info struct in the shared_info
+	 * page, we use it in the event channel upcall and in some pvclock
+	 * related functions. 
+	 * The shared info contains exactly 1 CPU (the boot CPU). The guest
+	 * is required to use VCPUOP_register_vcpu_info to place vcpu info
+	 * for secondary CPUs as they are brought up.
+	 * For uniformity we use VCPUOP_register_vcpu_info even on cpu0.
+	 */
+	xen_vcpu_info = __alloc_percpu(sizeof(struct vcpu_info),
+				       1 << fls(sizeof(struct vcpu_info) - 1));
+	if (xen_vcpu_info == NULL)
+		return -ENOMEM;
+
+	/* Direct vCPU id mapping for ARM guests. */
+	for_each_possible_cpu(cpu)
+		per_cpu(xen_vcpu_id, cpu) = cpu;
+
+	// if (!xen_grant_frames) {
+	// 	xen_auto_xlat_grant_frames.count = gnttab_max_grant_frames();
+	// 	rc = xen_xlate_map_ballooned_pages(&xen_auto_xlat_grant_frames.pfn,
+	// 									   &xen_auto_xlat_grant_frames.vaddr,
+	// 									   xen_auto_xlat_grant_frames.count);
+	// } else
+	// 	rc = gnttab_setup_auto_xlat_frames(xen_grant_frames);
+	// if (rc) {
+	// 	free_percpu(xen_vcpu_info);
+	// 	return rc;
+	// }
+	// gnttab_init();
 
 	/*
 	 * Making sure board specific code will not set up ops for
@@ -205,14 +258,6 @@ static int __init xen_guest_init(void)
 	disable_cpufreq();
 
 	xen_init_IRQ();
-
-	pr_info("DEBUG : %s:%d - xen_events_irq : %d\n", __FILE__, __LINE__, xen_events_irq);
-	if (request_percpu_irq(xen_events_irq, xen_riscv_callback,
-			       "events", &xen_vcpu)) {
-		pr_err("Error request IRQ %d\n", xen_events_irq);
-		return -EINVAL;
-	}
-	enable_percpu_irq(xen_events_irq, IRQ_TYPE_NONE);
 
     return cpuhp_setup_state(CPUHP_AP_ONLINE_DYN,
 				 "riscv/xen:starting", xen_starting_cpu,
@@ -227,6 +272,19 @@ static int xen_starting_runstate_cpu(unsigned int cpu)
 
 static int __init xen_late_init(void)
 {
+	xen_events_irq = irq_of_parse_and_map(xen_node, 0);
+
+	if (!xen_events_irq){
+		pr_err("Xen event channel interrupt not found\n");
+		return -ENODEV;
+	}
+	
+	pr_info("DEBUG : %s:%d - xen_events_irq : %d\n", __FILE__, __LINE__, xen_events_irq);
+	if (request_irq(xen_events_irq, xen_riscv_callback, 0,
+			       "xen-events", NULL)) {
+		pr_err("Error request IRQ %d\n", xen_events_irq);
+		return -EINVAL;
+	}
 	return 0;
 }
 late_initcall(xen_late_init);
