@@ -53,6 +53,23 @@ static inline int hvm_get_parameter(int idx, uint64_t *value)
 	return r;
 }
 
+static inline int hvm_set_parameter(int idx, uint64_t value)
+{
+	struct xen_hvm_param xhv;
+	int r;
+
+	xhv.value = value;
+	xhv.domid = DOMID_SELF;
+	xhv.index = idx;
+	r = HYPERVISOR_hvm_op(HVMOP_set_param, &xhv);
+	if (r < 0) {
+		pr_err("Cannot set hvm parameter %s (%d): %d!\n",
+		       param_name(idx), idx, r);
+		return r;
+	}
+	return r;
+}
+
 #define HVM_CALLBACK_VIA_TYPE_VECTOR 0x2
 #define HVM_CALLBACK_VIA_TYPE_SHIFT 56
 #define HVM_CALLBACK_VECTOR(x) (((uint64_t)HVM_CALLBACK_VIA_TYPE_VECTOR)<<\

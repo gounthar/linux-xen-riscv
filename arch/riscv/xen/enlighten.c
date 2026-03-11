@@ -68,7 +68,19 @@ uint32_t xen_start_flags;
 EXPORT_SYMBOL(xen_start_flags);
 
 struct device_node *xen_node;
-static uint32_t evtchn_hwirq;
+
+/**
+ * struct xen_irq_fwspec - Firmware (DT) interrupt specification
+ *                          for the Xen event channel interrupt
+ * @hwirq: IMSIC local_id as assigned by the Xen hypervisor
+ * @oirq:  Parsed DT interrupt specifier (interrupts-extended)
+ */
+struct xen_irq_fwspec {
+    irq_hw_number_t hwirq;
+    uint32_t oirq;
+};
+
+static struct xen_irq_fwspec xen_irq;
 
 int xen_unmap_domain_gfn_range(struct vm_area_struct *vma,
 					int nr, struct page **pages)
@@ -171,11 +183,17 @@ static void __init xen_dt_guest_init(void)
 		return;
 	}
 
-	evtchn_hwirq = irq_args.args[1];
-	if (!evtchn_hwirq){
-		pr_err("Event channel hwirq missing\n");
+	if (!irq_args.args[0]){
+		pr_err("Phandle referencing interrupt controller missing\n");
 		return;
 	}
+	xen_irq.oirq = irq_args.args[0];
+
+	if (!irq_args.args[1]){
+		pr_err("Interrupt specifier missing\n");
+		return;
+	}
+	xen_irq.hwirq = irq_args.args[1];
 
 	if (of_address_to_resource(xen_node, GRANT_TABLE_INDEX, &res)) {
 		pr_err("Xen grant table region is not found\n");
