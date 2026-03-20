@@ -60,11 +60,6 @@ HYPERCALL3(dm_op);
 SYM_FUNC_START(privcmd_call)
     mv a6, a0
     li a7, SBI_ECALL
-    mv a5, a4;
-    mv a4, a3;
-    mv a3, a2;
-    mv a2, a1;
-    mv a1, a0;
     li a0, 0;
     ecall
     ret
