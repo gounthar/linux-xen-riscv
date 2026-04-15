@@ -221,6 +221,7 @@ static void __init xen_dt_guest_init(void)
 
 	if (of_address_to_resource(xen_node, GRANT_TABLE_INDEX, &res)) {
 		pr_err("Xen grant table region is not found\n");
+		of_node_put(xen_node);
 		return;
 	}
 	xen_grant_frames = res.start;
@@ -276,18 +277,18 @@ static int __init xen_guest_init(void)
 	for_each_possible_cpu(cpu)
 		per_cpu(xen_vcpu_id, cpu) = cpu;
 
-	// if (!xen_grant_frames) {
-	// 	xen_auto_xlat_grant_frames.count = gnttab_max_grant_frames();
-	// 	rc = xen_xlate_map_ballooned_pages(&xen_auto_xlat_grant_frames.pfn,
-	// 									   &xen_auto_xlat_grant_frames.vaddr,
-	// 									   xen_auto_xlat_grant_frames.count);
-	// } else
-	// 	rc = gnttab_setup_auto_xlat_frames(xen_grant_frames);
-	// if (rc) {
-	// 	free_percpu(xen_vcpu_info);
-	// 	return rc;
-	// }
-	// gnttab_init();
+	if (!xen_grant_frames) {
+		xen_auto_xlat_grant_frames.count = gnttab_max_grant_frames();
+		rc = xen_xlate_map_ballooned_pages(&xen_auto_xlat_grant_frames.pfn,
+										   &xen_auto_xlat_grant_frames.vaddr,
+										   xen_auto_xlat_grant_frames.count);
+	} else
+		rc = gnttab_setup_auto_xlat_frames(xen_grant_frames);
+	if (rc) {
+		free_percpu(xen_vcpu_info);
+		return rc;
+	}
+	gnttab_init();
 
 	/*
 	 * Making sure board specific code will not set up ops for
