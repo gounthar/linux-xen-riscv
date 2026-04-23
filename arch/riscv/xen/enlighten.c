@@ -115,22 +115,21 @@ static int xen_starting_cpu(unsigned int cpu)
 	 * can happen with cpu-hotplug.
 	 */
 	if (per_cpu(xen_vcpu, cpu) != NULL)
-		return 0;
+		goto after_register_vcpu_info;
 
 	pr_info("Xen: initializing cpu%d\n", cpu);
 	vcpup = per_cpu_ptr(xen_vcpu_info, cpu);
+
 	info.mfn = percpu_to_gfn(vcpup);
 	info.offset = xen_offset_in_page(vcpup);
 
-	/*
-	 * Set vcpu pointer before the hypercall, because registering
-	 * vcpu_info triggers an immediate event notification IRQ that
-	 * will call xen_evtchn_do_upcall which needs xen_vcpu set. 
-	 */
-	per_cpu(xen_vcpu, cpu) = vcpup;
 	err = HYPERVISOR_vcpu_op(VCPUOP_register_vcpu_info, xen_vcpu_nr(cpu),
 				 &info);
 	BUG_ON(err);
+	per_cpu(xen_vcpu, cpu) = vcpup;
+
+after_register_vcpu_info:
+	enable_percpu_irq(xen_events_irq, 0);
 	return 0;
 }
 
@@ -319,8 +318,8 @@ static int __init xen_late_init(void)
           return -ENODEV;
       }
 
-      if (request_irq(xen_events_irq, xen_riscv_callback, 0,
-                      "xen-events", NULL))
+      if (request_percpu_irq(xen_events_irq, xen_riscv_callback,
+                      "events", &xen_vcpu))
           return -EINVAL;
 
       return cpuhp_setup_state(CPUHP_AP_ONLINE_DYN,
