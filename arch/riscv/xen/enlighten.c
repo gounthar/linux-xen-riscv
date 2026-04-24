@@ -129,7 +129,7 @@ static int xen_starting_cpu(unsigned int cpu)
 	per_cpu(xen_vcpu, cpu) = vcpup;
 
 after_register_vcpu_info:
-	enable_percpu_irq(xen_events_irq, 0);
+	enable_percpu_irq(xen_events_irq, IRQ_TYPE_NONE);
 	return 0;
 }
 
@@ -310,21 +310,23 @@ static int xen_starting_runstate_cpu(unsigned int cpu)
 
 static int __init xen_late_init(void)
 {
-      xen_events_irq = irq_of_parse_and_map(xen_node, 0);
-      of_node_put(xen_node);
+	xen_events_irq = irq_of_parse_and_map(xen_node, 0);
+	of_node_put(xen_node);
 
-      if (!xen_events_irq){
-          pr_err("Xen event channel interrupt not found\n");
-          return -ENODEV;
-      }
+	if (!xen_events_irq){
+		pr_err("Xen event channel interrupt not found\n");
+		return -ENODEV;
+	}
 
-      if (request_percpu_irq(xen_events_irq, xen_riscv_callback,
-                      "events", &xen_vcpu))
-          return -EINVAL;
+	irq_set_percpu_devid(xen_events_irq);
+	irq_set_handler(xen_events_irq, handle_percpu_devid_irq);
+	if (request_percpu_irq(xen_events_irq, xen_riscv_callback,
+			"events", &xen_vcpu))
+		return -EINVAL;
 
-      return cpuhp_setup_state(CPUHP_AP_ONLINE_DYN,
-                   "riscv/xen:starting", xen_starting_cpu,
-                   xen_dying_cpu);
+	return cpuhp_setup_state(CPUHP_AP_ONLINE_DYN,
+			"riscv/xen:starting", xen_starting_cpu,
+			xen_dying_cpu);
 }
 late_initcall(xen_late_init);
 
