@@ -788,15 +788,24 @@ static void xenbus_probe(void)
 }
 
 /*
- * Returns true when XenStore init must be deferred in order to
- * allow the PCI platform device to be initialised, before we
- * can actually have event channel interrupts working.
+ * Returns true when XenStore init must be deferred until the platform
+ * device providing event channel interrupt delivery is initialized.
+ *
+ * On x86 HVM, this is the PCI platform device; deferral is only needed
+ * when the vector callback is not yet available.
+ *
+ * On RISC-V, this is the IMSIC platform device, which must always be
+ * initialized before event channel interrupts can be delivered. Unlike
+ * x86, there is no early readiness flag equivalent to xen_have_vector_callback.
  */
 static bool xs_hvm_defer_init_for_callback(void)
 {
-#ifdef CONFIG_XEN_PVHVM
+#if defined(CONFIG_XEN_PVHVM) && defined(CONFIG_X86)
 	return xen_store_domain_type == XS_HVM &&
 		!xen_have_vector_callback;
+#elif defined(CONFIG_RISCV_IMSIC)
+	/* IMSIC has no readiness flag; always wait for platform device init. */
+	return xen_store_domain_type == XS_HVM;
 #else
 	return false;
 #endif
