@@ -324,9 +324,9 @@ static int __init xen_late_init(void)
 			"events", &xen_vcpu))
 		return -EINVAL;
 
-	return cpuhp_setup_state(CPUHP_AP_ONLINE_DYN,
-			"riscv/xen:starting", xen_starting_cpu,
-			xen_dying_cpu);
+	return cpuhp_setup_state(CPUHP_AP_RISCV_XEN_STARTING,
+                   "riscv/xen:starting", xen_starting_cpu,
+                   xen_dying_cpu);
 }
 late_initcall(xen_late_init);
 
