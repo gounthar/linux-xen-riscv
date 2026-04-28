@@ -15,7 +15,6 @@
 #include <xen/xen-ops.h>
 #include <asm/xen/hypervisor.h>
 #include <asm/xen/hypercall.h>
-#include <asm/efi.h>
 #include <linux/interrupt.h>
 #include <linux/irqreturn.h>
 #include <linux/module.h>
@@ -32,7 +31,6 @@
 #include <linux/time64.h>
 #include <linux/timekeeping.h>
 #include <linux/timekeeper_internal.h>
-#include <linux/acpi.h>
 #include <linux/virtio_anchor.h>
 
 #include <linux/mm.h>
@@ -69,19 +67,6 @@ EXPORT_SYMBOL(xen_start_flags);
 
 struct device_node *xen_node;
 
-/**
- * struct xen_irq_fwspec - Firmware (DT) interrupt specification
- *                          for the Xen event channel interrupt
- * @hwirq: IMSIC local_id as assigned by the Xen hypervisor
- * @oirq:  Parsed DT interrupt specifier (interrupts-extended)
- */
-struct xen_irq_fwspec {
-    irq_hw_number_t hwirq;
-    uint32_t oirq;
-};
-
-static struct xen_irq_fwspec xen_irq;
-
 int xen_unmap_domain_gfn_range(struct vm_area_struct *vma,
 					int nr, struct page **pages)
 {
@@ -109,7 +94,7 @@ static int xen_starting_cpu(unsigned int cpu)
 	struct vcpu_info *vcpup;
 	int err;
 
-	/* 
+	/*
 	 * VCPUOP_register_vcpu_info cannot be called twice for the same
 	 * vcpu, so if vcpu_info is already registered, just get out. This
 	 * can happen with cpu-hotplug.
@@ -163,6 +148,7 @@ static irqreturn_t xen_riscv_callback(int irq, void *arg)
 	xen_evtchn_do_upcall();
 	return IRQ_HANDLED;
 }
+
 static __initdata struct {
 	const char *compat;
 	const char *prefix;
@@ -181,49 +167,38 @@ void __init xen_early_init(void)
 	xen_domain_type = XEN_HVM_DOMAIN;
 
 	xen_setup_features();
-	printk("DEBUG %s:%d\n", __FILE__, __LINE__);
 
 	if (xen_feature(XENFEAT_dom0))
 		xen_start_flags |= SIF_INITDOMAIN|SIF_PRIVILEGED;
 
 	if (!console_set_on_cmdline && !xen_initial_domain())
 		add_preferred_console("hvc", 0, NULL);
-
 }
 
 static void __init xen_dt_guest_init(void)
 {
 	struct resource res;
-	struct of_phandle_args irq_args;
 
 	xen_node = of_find_compatible_node(NULL, NULL, "xen,xen");
 	if (!xen_node) {
 		pr_err("Xen support was detected before, but it has disappeared\n");
-		return;
+		goto out;
 	}
-	// if (of_irq_parse_one(xen_node, 0, &irq_args)){
-	// 	pr_err("Xen irq arg not found\n");
-	// 	return;
-	// }
-	//
-	// if (!irq_args.args[0]){
-	// 	pr_err("Phandle referencing interrupt controller missing\n");
-	// 	return;
-	// }
-	// xen_irq.oirq = irq_args.args[0];
-	//
-	// if (!irq_args.args[1]){
-	// 	pr_err("Interrupt specifier missing\n");
-	// 	return;
-	// }
-	// xen_irq.hwirq = irq_args.args[1];
 
+	xen_events_irq = irq_of_parse_and_map(xen_node, 0);
+	if (!xen_events_irq){
+		pr_err("Xen events irq not found\n");
+		goto out;
+
+	}
 	if (of_address_to_resource(xen_node, GRANT_TABLE_INDEX, &res)) {
 		pr_err("Xen grant table region is not found\n");
-		of_node_put(xen_node);
-		return;
+		goto out;
 	}
 	xen_grant_frames = res.start;
+out:
+	of_node_put(xen_node);
+	xen_node = NULL;
 }
 
 static int __init xen_guest_init(void)
@@ -239,10 +214,6 @@ static int __init xen_guest_init(void)
 		virtio_set_mem_acc_cb(xen_virtio_restricted_mem_acc);
 
 	xen_dt_guest_init();
-	// if (!acpi_disabled)
-	// 	xen_acpi_guest_init();
-	// else
-	// 	xen_dt_guest_init();
 
 	shared_info_page = (struct shared_info *)get_zeroed_page(GFP_KERNEL);
 
@@ -261,7 +232,7 @@ static int __init xen_guest_init(void)
 
 	/* xen_vcpu is a pointer to the vcpu_info struct in the shared_info
 	 * page, we use it in the event channel upcall and in some pvclock
-	 * related functions. 
+	 * related functions.
 	 * The shared info contains exactly 1 CPU (the boot CPU). The guest
 	 * is required to use VCPUOP_register_vcpu_info to place vcpu info
 	 * for secondary CPUs as they are brought up.
@@ -272,7 +243,7 @@ static int __init xen_guest_init(void)
 	if (xen_vcpu_info == NULL)
 		return -ENOMEM;
 
-	/* Direct vCPU id mapping for ARM guests. */
+	/* Direct vCPU id mapping for RISC-V guests. */
 	for_each_possible_cpu(cpu)
 		per_cpu(xen_vcpu_id, cpu) = cpu;
 
@@ -298,8 +269,18 @@ static int __init xen_guest_init(void)
 
 	xen_init_IRQ();
 
-	return 0;
+	if (request_percpu_irq(xen_events_irq, xen_riscv_callback,
+			       "events", &xen_vcpu)) {
+		pr_err("Error request IRQ %d\n", xen_events_irq);
+		return -EINVAL;
+	}
 
+	// if (xen_initial_domain())
+	// 	pvclock_gtod_register_notifier(&xen_pvclock_gtod_notifier);
+
+	return cpuhp_setup_state(CPUHP_AP_RISCV_XEN_STARTING,
+				 "riscv/xen:starting", xen_starting_cpu,
+				 xen_dying_cpu);
 }
 early_initcall(xen_guest_init);
 
@@ -310,23 +291,7 @@ static int xen_starting_runstate_cpu(unsigned int cpu)
 
 static int __init xen_late_init(void)
 {
-	xen_events_irq = irq_of_parse_and_map(xen_node, 0);
-	of_node_put(xen_node);
-
-	if (!xen_events_irq){
-		pr_err("Xen event channel interrupt not found\n");
-		return -ENODEV;
-	}
-
-	irq_set_percpu_devid(xen_events_irq);
-	irq_set_handler(xen_events_irq, handle_percpu_devid_irq);
-	if (request_percpu_irq(xen_events_irq, xen_riscv_callback,
-			"events", &xen_vcpu))
-		return -EINVAL;
-
-	return cpuhp_setup_state(CPUHP_AP_RISCV_XEN_STARTING,
-                   "riscv/xen:starting", xen_starting_cpu,
-                   xen_dying_cpu);
+	return 0;
 }
 late_initcall(xen_late_init);
 
