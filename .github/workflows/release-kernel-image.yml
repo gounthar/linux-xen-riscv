@@ -1,0 +1,33 @@
+name: Release RISC-V Xen kernel image
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+-riscv-domu-support'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build kernel
+        run: |
+          docker run --rm -v $PWD:/build/linux tuxmake/riscv_gcc-14 \
+            /bin/bash -c "make -C /build/linux ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- -j$(nproc) xen_defconfig Image.gz"
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push image
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          docker buildx build -f arch/riscv/boot/docker/Dockerfile \
+            -t baptleduc/xen-riscv64-kernel:${TAG} \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --push \
+            arch/riscv/boot/
