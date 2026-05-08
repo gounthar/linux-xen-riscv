@@ -1,0 +1,46 @@
+name: Release RISC-V Xen kernel image
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+-riscv-domu-support'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to push (e.g. v6.18.0-riscv-domu-support)'
+        required: true
+        default: 'test'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build kernel
+        run: |
+          docker run --rm -v $PWD:/build/linux tuxmake/riscv_gcc-14 \
+            /bin/bash -c "make -C /build/linux ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- -j$(nproc) xen_defconfig Image.gz"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push image
+        run: |
+          TAG=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+          docker buildx build -f arch/riscv/boot/docker/Dockerfile \
+            -t gounthar/xen-riscv64-kernel:${TAG} \
+            --platform linux/amd64,linux/arm64 \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --push \
+            arch/riscv/boot/
