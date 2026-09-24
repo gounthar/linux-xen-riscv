@@ -5,6 +5,7 @@
 #include <xen/hvm.h>
 #include <xen/interface/vcpu.h>
 #include <xen/interface/xen.h>
+#include <xen/interface/version.h>
 #include <xen/interface/memory.h>
 #include <xen/interface/hvm/params.h>
 #include <xen/features.h>
@@ -146,6 +147,13 @@ static void xen_power_off(void)
 static irqreturn_t xen_riscv_callback(int irq, void *arg)
 {
 	xen_evtchn_do_upcall();
+	/*
+	 * Xen clears IRQ_VS_EVTCHN in hvip only in
+	 * enter_hypervisor_from_guest(), i.e. on a guest exit. With sstc the
+	 * guest can run a long time without exiting, so the line stays asserted
+	 * after the upcall and re-fires forever. Force an exit so Xen resamples.
+	 */
+	HYPERVISOR_xen_version(XENVER_version, NULL);
 	return IRQ_HANDLED;
 }
 
