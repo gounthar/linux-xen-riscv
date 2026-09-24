@@ -53,5 +53,11 @@ int arch_gnttab_map_status(uint64_t *frames, unsigned long nr_gframes,
 
 int arch_gnttab_init(unsigned long nr_shared, unsigned long nr_status)
 {
-	return -ENOSYS;
+	/*
+	 * As arch/arm/xen/grant-table.c: an auto-translated guest maps
+	 * its grant frames through XENMEM_add_to_physmap in gnttab_map() and needs
+	 * nothing set up here. Returning -ENOSYS made gnttab_init() bail out before
+	 * gnttab_setup(), leaving gnttab_shared.addr NULL.
+	 */
+	return 0;
 }
