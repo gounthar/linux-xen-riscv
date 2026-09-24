@@ -40,7 +40,7 @@ static struct start_info _xen_start_info;
 struct start_info *xen_start_info = &_xen_start_info;
 EXPORT_SYMBOL(xen_start_info);
 
-enum xen_domain_type xen_domain_type = XEN_HVM_DOMAIN; //hacked
+enum xen_domain_type xen_domain_type = XEN_NATIVE;
 EXPORT_SYMBOL(xen_domain_type);
 
 struct shared_info xen_dummy_shared_info;
@@ -167,11 +167,42 @@ static __initdata struct {
 static int __init fdt_find_hyper_node(unsigned long node, const char *uname,
 					int depth, void *data)
 {
+	const void *s = NULL;
+	int len;
+
+	if (depth != 1 || strcmp(uname, "hypervisor") != 0)
+		return 0;
+
+	if (of_flat_dt_is_compatible(node, hyper_node.compat))
+		hyper_node.found = true;
+
+	s = of_get_flat_dt_prop(node, "compatible", &len);
+	if (s && strlen(hyper_node.prefix) + 3 < len &&
+	    !strncmp(hyper_node.prefix, s, strlen(hyper_node.prefix)))
+		hyper_node.version = s + strlen(hyper_node.prefix);
+
 	return 0;
 }
 
+/*
+ * See Documentation/devicetree/bindings/arm/xen.txt for the documentation
+ * of the Xen device tree format, which RISC-V reuses unchanged.
+ */
 void __init xen_early_init(void)
 {
+	of_scan_flat_dt(fdt_find_hyper_node, NULL);
+	if (!hyper_node.found) {
+		pr_debug("No Xen support\n");
+		return;
+	}
+
+	if (hyper_node.version == NULL) {
+		pr_debug("Xen version not found\n");
+		return;
+	}
+
+	pr_info("Xen %s support found\n", hyper_node.version);
+
 	xen_domain_type = XEN_HVM_DOMAIN;
 
 	xen_setup_features();
