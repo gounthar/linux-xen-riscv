@@ -70,7 +70,7 @@ struct device_node *xen_node;
 int xen_unmap_domain_gfn_range(struct vm_area_struct *vma,
 					int nr, struct page **pages)
 {
-	return 0;
+	return xen_xlate_unmap_gfn_range(vma, nr, pages);
 }
 EXPORT_SYMBOL_GPL(xen_unmap_domain_gfn_range);
 
