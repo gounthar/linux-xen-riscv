@@ -16,7 +16,9 @@
 #include <xen/xen-ops.h>
 #include <asm/xen/hypervisor.h>
 #include <asm/xen/hypercall.h>
+#include <asm/csr.h>
 #include <linux/interrupt.h>
+#include <linux/irq.h>
 #include <linux/irqreturn.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -58,6 +60,8 @@ unsigned long xen_released_pages;
 struct xen_memory_region xen_extra_mem[XEN_EXTRA_MEM_MAX_REGIONS] __initdata;
 
 static __read_mostly unsigned int xen_events_irq;
+/* The event interrupt's bit in sip, from its hwirq in the DT */
+static __read_mostly unsigned long xen_events_ip_bit;
 static __read_mostly phys_addr_t xen_grant_frames;
 
 #define GRANT_TABLE_INDEX   0
@@ -157,6 +161,17 @@ core_param(xen_upcall_trap, xen_upcall_trap, bool, 0644);
 
 static irqreturn_t xen_riscv_callback(int irq, void *arg)
 {
+	/*
+	 * Xen raises the event upcall in hvip and, left alone, only drops it
+	 * when this vCPU next traps into Xen, so the interrupt keeps firing
+	 * with nothing pending. Xen does not delegate it (hideleg) but sets it
+	 * in hvien, so sip has a writable alias of that hvip bit (AIA,
+	 * "Interrupt filtering and virtual interrupts for VS level"): clear it
+	 * here, without a trap. Clear it before the scan: an event that
+	 * arrives during the scan is either picked up by it or raises the bit
+	 * again.
+	 */
+	csr_clear(CSR_IP, xen_events_ip_bit);
 	xen_evtchn_do_upcall();
 	if (READ_ONCE(xen_upcall_trap))
 		sbi_ecall(SBI_EXT_BASE, SBI_EXT_BASE_GET_SPEC_VERSION,
@@ -206,6 +221,7 @@ static void __init xen_dt_guest_init(void)
 		goto out;
 
 	}
+	xen_events_ip_bit = BIT(irqd_to_hwirq(irq_get_irq_data(xen_events_irq)));
 	if (of_address_to_resource(xen_node, GRANT_TABLE_INDEX, &res)) {
 		pr_err("Xen grant table region is not found\n");
 		goto out;
