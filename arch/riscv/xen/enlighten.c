@@ -159,6 +159,10 @@ static void xen_power_off(void)
 static bool xen_upcall_trap;
 core_param(xen_upcall_trap, xen_upcall_trap, bool, 0644);
 
+/* Test only (#108): A0 on/off at runtime, /sys/module/kernel/parameters/xen_upcall_ack */
+static bool xen_upcall_ack = true;
+core_param(xen_upcall_ack, xen_upcall_ack, bool, 0644);
+
 static irqreturn_t xen_riscv_callback(int irq, void *arg)
 {
 	/*
@@ -171,7 +175,8 @@ static irqreturn_t xen_riscv_callback(int irq, void *arg)
 	 * arrives during the scan is either picked up by it or raises the bit
 	 * again.
 	 */
-	csr_clear(CSR_IP, xen_events_ip_bit);
+	if (READ_ONCE(xen_upcall_ack))
+		csr_clear(CSR_IP, xen_events_ip_bit);
 	xen_evtchn_do_upcall();
 	if (READ_ONCE(xen_upcall_trap))
 		sbi_ecall(SBI_EXT_BASE, SBI_EXT_BASE_GET_SPEC_VERSION,
