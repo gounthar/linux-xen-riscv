@@ -162,6 +162,8 @@ core_param(xen_upcall_trap, xen_upcall_trap, bool, 0644);
 /* Test only (#108): A0 on/off at runtime, /sys/module/kernel/parameters/xen_upcall_ack */
 static bool xen_upcall_ack = true;
 core_param(xen_upcall_ack, xen_upcall_ack, bool, 0644);
+static unsigned long xen_upcall_ack_stuck;
+core_param(xen_upcall_ack_stuck, xen_upcall_ack_stuck, ulong, 0444);
 
 static irqreturn_t xen_riscv_callback(int irq, void *arg)
 {
@@ -177,6 +179,10 @@ static irqreturn_t xen_riscv_callback(int irq, void *arg)
 	 */
 	if (READ_ONCE(xen_upcall_ack))
 		csr_clear(CSR_IP, xen_events_ip_bit);
+	/* Test only: did the clear take? stopi from VS is vstopi, which QEMU computes from hvip */
+	if (READ_ONCE(xen_upcall_ack) &&
+	    (csr_read(CSR_TOPI) >> TOPI_IID_SHIFT) == __ffs(xen_events_ip_bit))
+		data_race(xen_upcall_ack_stuck++);
 	xen_evtchn_do_upcall();
 	if (READ_ONCE(xen_upcall_trap))
 		sbi_ecall(SBI_EXT_BASE, SBI_EXT_BASE_GET_SPEC_VERSION,
