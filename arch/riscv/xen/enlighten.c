@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <xen/xen.h>
 #include <xen/events.h>
+#include <asm/sbi.h>
 #include <xen/grant_table.h>
 #include <xen/hvm.h>
 #include <xen/interface/vcpu.h>
@@ -143,9 +144,23 @@ static void xen_power_off(void)
 {
 }
 
+/*
+ * Xen raises the event upcall with a bit in hvip and only clears it when
+ * this vCPU next traps into Xen (enter_hypervisor_from_guest()). Handling
+ * the events here does not clear it, so the interrupt is taken again and
+ * again with nothing pending until some later trap. xen_upcall_trap=1
+ * traps right after each upcall, with an SBI call Xen answers silently,
+ * so Xen drops the bit at once (or keeps it if a new event came in).
+ */
+static bool xen_upcall_trap;
+core_param(xen_upcall_trap, xen_upcall_trap, bool, 0644);
+
 static irqreturn_t xen_riscv_callback(int irq, void *arg)
 {
 	xen_evtchn_do_upcall();
+	if (READ_ONCE(xen_upcall_trap))
+		sbi_ecall(SBI_EXT_BASE, SBI_EXT_BASE_GET_SPEC_VERSION,
+			  0, 0, 0, 0, 0, 0);
 	return IRQ_HANDLED;
 }
 
